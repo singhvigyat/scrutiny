@@ -72,6 +72,7 @@ export const SignIn: React.FC = () => {
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${accessToken}`,
+            'ngrok-skip-browser-warning': 'true' 
           },
         });
 
