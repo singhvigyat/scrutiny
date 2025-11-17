@@ -1,10 +1,25 @@
 import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './index.css'; // Your global styles, now with Tailwind
-import App from './App'; // Import the new App component
+import { createRoot } from 'react-dom/client';
+import { HashRouter, Routes, Route } from 'react-router-dom';
+import './index.css';
 
-const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
+// Import your components
+import Dashboard from './components/StudentDashboard.tsx';
+import { TeacherDashboard } from './components/TeacherDashboard.tsx';
 
+function App() {
+  return (
+    <HashRouter>
+      <Routes>
+        <Route path="/" element={<TeacherDashboard/>}  >
+          {/* <Route path="settings" element={<Settings />} /> */}
+        </Route>
+      </Routes>
+    </HashRouter>
+  );
+}
+
+const root = createRoot(document.getElementById('root')!);
 root.render(
   <React.StrictMode>
     {/* The App component now contains the AuthProvider 
