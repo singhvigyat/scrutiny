@@ -26,8 +26,24 @@
  * ```
  */
 
+import React from 'react';
+import { createRoot } from 'react-dom/client';
 import './index.css';
 
-console.log(
-  '👋 This message is being logged by "renderer.ts", included via Vite',
+function App() {
+  return (
+    <div className="bg-gray-00 text-white min-h-screen flex items-center justify-center">
+      <h1 className="text-4xl font-bold underline text-black">
+        Electron + React + Tailwind
+      </h1>
+    </div>
+  );
+}
+
+
+const root = createRoot(document.getElementById('root')!);
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
 );
