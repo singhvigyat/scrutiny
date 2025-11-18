@@ -10,37 +10,42 @@ interface Props {
   onSessionStarted?: (session: any) => void;
 }
 
-const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string) || "";
-const apiBase = BACKEND_URL ? BACKEND_URL.replace(/\/$/, "") : "/api";
-
 type RawSession = any;
 
 function normalizeSession(raw: RawSession) {
   if (!raw) return null;
 
-  // session id
   const id = raw.id ?? raw.sessionId ?? raw.session_id ?? raw.session?.id ?? null;
 
-  // quiz id
   const quizId =
     raw.quizId ??
     raw.quiz_id ??
     raw.quiz?.id ??
     raw.quiz?.quizId ??
     raw.quiz?.quiz_id ??
-    raw.quizId ??
     raw.quiz ??
     null;
 
-  // participants
   const participants = raw.participants ?? raw.users ?? raw.participantList ?? [];
 
-  // status
   const status = (raw.status ?? raw.state ?? "").toString();
 
-  // start/end times
-  const startsAt = raw.startsAt ?? raw.startTime ?? raw.start_time ?? raw.starts_at ?? raw.session?.startsAt ?? raw.session?.startTime ?? null;
-  const endsAt = raw.endsAt ?? raw.endTime ?? raw.end_time ?? raw.ends_at ?? raw.session?.endsAt ?? raw.session?.endTime ?? null;
+  const startsAt =
+    raw.startsAt ??
+    raw.startTime ??
+    raw.start_time ??
+    raw.starts_at ??
+    raw.session?.startsAt ??
+    raw.session?.startTime ??
+    null;
+  const endsAt =
+    raw.endsAt ??
+    raw.endTime ??
+    raw.end_time ??
+    raw.ends_at ??
+    raw.session?.endsAt ??
+    raw.session?.endTime ??
+    null;
 
   const pin = raw.pin ?? raw.pinCode ?? raw.code ?? raw.session?.pin ?? null;
 
@@ -61,68 +66,126 @@ export default function LobbyView({ sessionId, role, onClose, onSessionStarted }
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // If the session becomes active, fetch canonical session details (to ensure we have quizId etc)
+  // derive apiBase as other components do
+  const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string) || "";
+  const apiBase = BACKEND_URL ? BACKEND_URL.replace(/\/$/, "") : "/api";
+
+  // If the session becomes active, fetch canonical session details (try status endpoint first)
   useEffect(() => {
-    // only react to status === active
     if (!session) return;
     const sStatus = (session.status ?? session.state ?? "").toString().toLowerCase();
 
     if (sStatus === "active") {
       console.log("[LobbyView] detected active session from poll:", session);
 
-      // Fetch full session details to normalize fields before notifying parent
       (async () => {
         try {
           const sessRes = await supabase.auth.getSession();
           const accessToken = sessRes?.data?.session?.access_token ?? null;
           if (!accessToken) {
-            console.warn("[LobbyView] no access token when fetching session details");
-            // still pass normalized poll session if nothing else
+            console.warn("[LobbyView] no access token when fetching session details - falling back to poll session");
             const normalized = normalizeSession(session);
             onSessionStarted?.(normalized);
             return;
           }
 
-          const resp = await fetch(`${apiBase}/api/sessions/${encodeURIComponent(sessionId)}`, {
-            method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-              "ngrok-skip-browser-warning": "true",
-            },
-          });
+          // Try the new /status endpoint first
+          const statusUrl = `${apiBase}/api/sessions/${encodeURIComponent(sessionId)}/status`;
+          console.log("[LobbyView] fetching full session details from (status endpoint):", statusUrl);
 
-          const text = await resp.text();
+          let resp: Response | null = null;
+          let text = "";
           let json: any = null;
-          try {
-            json = text ? JSON.parse(text) : null;
-          } catch (parseErr) {
-            console.warn("[LobbyView] could not parse session GET response:", parseErr, "raw:", text);
-            json = null;
-          }
 
-          if (!resp.ok) {
-            console.warn("[LobbyView] GET /api/sessions/:id returned non-OK:", resp.status, text);
-            // fallback to poll-provided session, normalized
-            const normalized = normalizeSession(session);
+          try {
+            resp = await fetch(statusUrl, {
+              method: "GET",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${accessToken}`,
+                "ngrok-skip-browser-warning": "true",
+              },
+            });
+
+            text = await resp.text();
+            try {
+              json = text ? JSON.parse(text) : null;
+            } catch (parseErr) {
+              console.warn("[LobbyView] could not parse status GET response:", parseErr, "raw:", text);
+              json = null;
+            }
+
+            if (!resp.ok) {
+              console.warn("[LobbyView] GET /status returned non-OK:", resp.status, text);
+              // fallback to trying the canonical session endpoint(s)
+              throw new Error(`status endpoint returned ${resp.status}`);
+            }
+
+            // If success, prefer payload.session or payload directly
+            const full = json?.session ?? json ?? session;
+            const normalized = normalizeSession(full);
+            console.log("[LobbyView] fetched session via /status (normalized):", normalized);
             onSessionStarted?.(normalized);
             return;
+          } catch (err) {
+            console.warn("[LobbyView] status endpoint failed or was missing/invalid, falling back. err:", err);
+            // Fallthrough to try canonical patterns below
           }
 
-          const full = json?.session ?? json ?? session;
-          const normalized = normalizeSession(full);
-          console.log("[LobbyView] fetched full session details (normalized):", normalized);
+          // fallback: try canonical session endpoints (use same candidates as useSessionPoll)
+          const fallbacks = [
+            `${apiBase}/api/sessions/${encodeURIComponent(sessionId)}`,
+            `${apiBase}/api/session/${encodeURIComponent(sessionId)}`,
+            `${apiBase}/sessions/${encodeURIComponent(sessionId)}`,
+            `/api/sessions/${encodeURIComponent(sessionId)}`,
+          ];
+
+          for (const url of fallbacks) {
+            try {
+              console.log("[LobbyView] fallback fetching session from:", url);
+              const r = await fetch(url, {
+                method: "GET",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${accessToken}`,
+                  "ngrok-skip-browser-warning": "true",
+                },
+              });
+              const t = await r.text();
+              let j: any = null;
+              try {
+                j = t ? JSON.parse(t) : null;
+              } catch {
+                j = null;
+              }
+              if (!r.ok) {
+                console.warn("[LobbyView] fallback returned non-ok:", r.status, t);
+                continue;
+              }
+              const full = j?.session ?? j ?? session;
+              const normalized = normalizeSession(full);
+              console.log("[LobbyView] fetched session via fallback (normalized):", normalized);
+              onSessionStarted?.(normalized);
+              return;
+            } catch (innerErr) {
+              console.warn("[LobbyView] fallback fetch failed for", url, innerErr);
+              continue;
+            }
+          }
+
+          // If reached here, no fallback succeeded — pass normalized poll session
+          const normalized = normalizeSession(session);
+          console.warn("[LobbyView] could not fetch canonical session details, passing normalized poll session:", normalized);
           onSessionStarted?.(normalized);
         } catch (err: any) {
           console.error("[LobbyView] error fetching full session details:", err);
-          // fallback: pass normalized poll session
           const normalized = normalizeSession(session);
           onSessionStarted?.(normalized);
         }
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.status]);
+  }, [session?.status, apiBase]);
 
   const participants = useMemo(() => session?.participants ?? [], [session]);
 
@@ -137,21 +200,32 @@ export default function LobbyView({ sessionId, role, onClose, onSessionStarted }
         setActionLoading(false);
         return;
       }
-      const resp = await fetch(`${apiBase}/api/sessions/${encodeURIComponent(sessionId)}/start`, {
+
+      const url = `${apiBase}/api/sessions/${encodeURIComponent(sessionId)}/start`;
+      console.log("[LobbyView] POST start session ->", url);
+
+      const resp = await fetch(url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "ngrok-skip-browser-warning": "true",
         },
       });
+
       const text = await resp.text();
       let json: any = null;
-      try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        json = null;
+      }
+
       if (!resp.ok) {
         setActionError(json?.message ?? text ?? `Status ${resp.status}`);
         setActionLoading(false);
         return;
       }
+
       // update local session; polling will catch up too
       setSession(json ?? session);
       console.log("[LobbyView] started session:", json);
@@ -174,21 +248,32 @@ export default function LobbyView({ sessionId, role, onClose, onSessionStarted }
         setActionLoading(false);
         return;
       }
-      const resp = await fetch(`${apiBase}/api/sessions/${encodeURIComponent(sessionId)}/end`, {
+
+      const url = `${apiBase}/api/sessions/${encodeURIComponent(sessionId)}/end`;
+      console.log("[LobbyView] POST end session ->", url);
+
+      const resp = await fetch(url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "ngrok-skip-browser-warning": "true",
         },
       });
+
       const text = await resp.text();
       let json: any = null;
-      try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        json = null;
+      }
+
       if (!resp.ok) {
         setActionError(json?.message ?? text ?? `Status ${resp.status}`);
         setActionLoading(false);
         return;
       }
+
       setSession(json ?? session);
       console.log("[LobbyView] ended session:", json);
     } catch (err: any) {
@@ -224,7 +309,7 @@ export default function LobbyView({ sessionId, role, onClose, onSessionStarted }
           {participants.length === 0 ? (
             <div className="text-sm text-gray-500">No participants yet</div>
           ) : (
-            participants.map((p, i) => (
+            participants.map((p: any, i: any) => (
               <div key={p.id ?? i} className="flex items-center justify-between">
                 <div>
                   <div className="font-medium">{p.name ?? p.email ?? p.id}</div>

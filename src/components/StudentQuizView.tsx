@@ -93,7 +93,7 @@ export default function StudentQuizView({ session, onFinished }: Props): React.R
         return;
       }
 
-      const resp = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/submit`, {
+      const resp = await fetch(`${apiBase}/api/sessions/${encodeURIComponent(session.id)}/submit`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
