@@ -70,6 +70,12 @@ export const TeacherDashboard: React.FC = () => {
   const [lobbyPin, setLobbyPin] = useState<string | null>(null);
   const [lobbyOpen, setLobbyOpen] = useState(false);
 
+  // Results modal states (NEW)
+  const [resultsModalOpen, setResultsModalOpen] = useState(false);
+  const [resultsLoading, setResultsLoading] = useState(false);
+  const [resultsError, setResultsError] = useState<string | null>(null);
+  const [resultsData, setResultsData] = useState<any | null>(null);
+
   const auth = useAuthContext();
   const navigate = useNavigate();
 
@@ -461,6 +467,72 @@ export const TeacherDashboard: React.FC = () => {
     setLobbyPin(null);
   };
 
+  // --- fetch results for a quiz (NEW) ---
+  const fetchResultsForQuiz = async (quizId: string) => {
+    console.log("[TeacherDashboard] fetchResultsForQuiz start quizId=", quizId);
+    setResultsError(null);
+    setResultsData(null);
+    setResultsLoading(true);
+    setResultsModalOpen(true);
+
+    try {
+      const sessRes = await supabase.auth.getSession();
+      const accessToken = sessRes?.data?.session?.access_token ?? null;
+      if (!accessToken) {
+        setResultsError("No access token. Please sign in.");
+        setResultsLoading(false);
+        return;
+      }
+
+      // Note: endpoint per spec: GET /api/quizzes/:id/results
+      // We call using quizId here (server function you shared expects quizId param)
+      const url = `${apiBase}/api/quizzes/${encodeURIComponent(quizId)}/results`;
+      console.log("[TeacherDashboard] GET results ->", url);
+
+      const resp = await fetch(url, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+          "ngrok-skip-browser-warning": "true",
+        },
+      });
+
+      const text = await resp.text();
+      let json: any = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch (parseErr) {
+        console.warn("[TeacherDashboard] could not parse results response as JSON", parseErr, "raw:", text);
+        json = null;
+      }
+
+      if (!resp.ok) {
+        const errMsg = json?.error ?? json?.message ?? text ?? `Status ${resp.status}`;
+        console.error("[TeacherDashboard] fetch results failed:", errMsg);
+        setResultsError(String(errMsg));
+        setResultsLoading(false);
+        return;
+      }
+
+      console.log("[TeacherDashboard] fetch results success:", json);
+      setResultsData(json);
+    } catch (err: any) {
+      console.error("[TeacherDashboard] fetchResultsForQuiz error:", err);
+      setResultsError(String(err?.message ?? err));
+    } finally {
+      setResultsLoading(false);
+      console.log("[TeacherDashboard] fetchResultsForQuiz finished");
+    }
+  };
+
+  const closeResultsModal = () => {
+    setResultsModalOpen(false);
+    setResultsData(null);
+    setResultsLoading(false);
+    setResultsError(null);
+  };
+
   // load quizzes on mount
   useEffect(() => {
     fetchQuizzesForTeacher().catch((e) => console.error(e));
@@ -504,6 +576,17 @@ export const TeacherDashboard: React.FC = () => {
             onClick={() => openCreateLobbyForQuiz(String(id))}
           >
             Open Lobby
+          </button>
+
+          {/* NEW: Results button */}
+          <button
+            className="text-sm px-3 py-1 border rounded text-amber-700 hover:bg-amber-50"
+            onClick={() => {
+              console.log("[TeacherDashboard] Results requested for quiz", id);
+              fetchResultsForQuiz(String(id));
+            }}
+          >
+            Results
           </button>
         </div>
       </div>
@@ -789,6 +872,75 @@ export const TeacherDashboard: React.FC = () => {
               <div className="p-4">
                 <LobbyView sessionId={lobbySessionId} role="teacher" onClose={closeLobbyView} />
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Results modal (NEW) */}
+      {resultsModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) closeResultsModal(); }}
+        >
+          <div className="absolute inset-0 bg-black/50" />
+          <div className="relative max-w-3xl w-full mx-4 bg-white rounded shadow-lg z-10 overflow-auto max-h-[80vh]">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="text-lg font-semibold">Quiz Results</div>
+              <div>
+                <button onClick={closeResultsModal} className="px-3 py-1 rounded border text-sm hover:bg-gray-100">
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4">
+              {resultsLoading ? (
+                <div className="text-sm text-gray-600">Loading results...</div>
+              ) : resultsError ? (
+                <div className="text-sm text-red-600">Error: {resultsError}</div>
+              ) : !resultsData ? (
+                <div className="text-sm text-gray-600">No results data.</div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-sm text-gray-500">Quiz</div>
+                    <div className="font-semibold">{resultsData.quizTitle ?? "Untitled"}</div>
+                    <div className="text-xs text-gray-500">Total submissions: {resultsData.totalSubmissions ?? (resultsData.results?.length ?? 0)}</div>
+                  </div>
+
+                  {Array.isArray(resultsData.results) && resultsData.results.length === 0 ? (
+                    <div className="text-sm text-gray-600">No submissions yet for this quiz.</div>
+                  ) : (
+                    <div className="overflow-auto">
+                      <table className="w-full text-sm border-collapse">
+                        <thead>
+                          <tr className="text-left">
+                            <th className="border-b py-2 px-2">Student ID</th>
+                            <th className="border-b py-2 px-2">Score</th>
+                            <th className="border-b py-2 px-2">Total Questions</th>
+                            <th className="border-b py-2 px-2">Submitted At</th>
+                            <th className="border-b py-2 px-2">Submission ID</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(resultsData.results ?? []).map((r: any) => (
+                            <tr key={r.submissionId ?? r.studentId ?? Math.random()}>
+                              <td className="py-2 px-2 border-b">{r.studentId ?? "—"}</td>
+                              <td className="py-2 px-2 border-b">{r.score ?? "—"}</td>
+                              <td className="py-2 px-2 border-b">{r.totalQuestions ?? "—"}</td>
+                              <td className="py-2 px-2 border-b">{r.submittedAt ? new Date(r.submittedAt).toLocaleString() : "—"}</td>
+                              <td className="py-2 px-2 border-b">{r.submissionId ?? "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
