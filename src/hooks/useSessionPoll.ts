@@ -35,21 +35,6 @@ export function useSessionPoll(sessionId: string | null, pollIntervalMs = 1500) 
     return [
       // new canonical status endpoint
       `${apiBase}/api/sessions/${encodeURIComponent(id)}/status`,
-      // preferred canonical without /status
-      `${apiBase}/api/sessions/${encodeURIComponent(id)}`,
-      // some backends use `session` singular
-      `${apiBase}/api/session/${encodeURIComponent(id)}`,
-      // some use top-level path without /api prefix
-      `${apiBase}/sessions/${encodeURIComponent(id)}`,
-      // older/no-api prefix
-      `/api/sessions/${encodeURIComponent(id)}`,
-      `/api/session/${encodeURIComponent(id)}`,
-      // query pattern
-      `${apiBase}/api/sessions?sessionId=${encodeURIComponent(id)}`,
-      `${apiBase}/api/sessions?pin=${encodeURIComponent(id)}`,
-      // custom guess
-      `${apiBase}/api/sessions/by-sessionId/${encodeURIComponent(id)}`,
-      `${apiBase}/sessions/by-sessionId/${encodeURIComponent(id)}`,
     ];
   };
 
