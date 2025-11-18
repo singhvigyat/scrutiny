@@ -38,13 +38,13 @@ const createWindow = () => {
   // Create the browser window
   const mainWindow = new BrowserWindow({
     show: false,
-    kiosk: true,
-    // Remove the native window frame/title bar completely
-    frame: false,
-    // Ensure window is always on top (less effective on some OS, but helpful)
-    alwaysOnTop: true,
-    // Disable resizing to prevent unexpected behavior when exiting fullscreen
-    resizable: false,
+
+    // // Remove the native window frame/title bar completely
+    // frame: false,
+    // // Ensure window is always on top (less effective on some OS, but helpful)
+    // alwaysOnTop: true,
+    // // Disable resizing to prevent unexpected behavior when exiting fullscreen
+    // resizable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
