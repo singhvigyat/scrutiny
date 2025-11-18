@@ -484,8 +484,7 @@ export const TeacherDashboard: React.FC = () => {
         return;
       }
 
-      // Note: endpoint per spec: GET /api/quizzes/:id/results
-      // We call using quizId here (server function you shared expects quizId param)
+      // Endpoint expected by backend: GET /api/quizzes/:id/results
       const url = `${apiBase}/api/quizzes/${encodeURIComponent(quizId)}/results`;
       console.log("[TeacherDashboard] GET results ->", url);
 
@@ -877,7 +876,7 @@ export const TeacherDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Results modal (NEW) */}
+      {/* Results modal (UPDATED to match backend response) */}
       {resultsModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
@@ -918,7 +917,8 @@ export const TeacherDashboard: React.FC = () => {
                       <table className="w-full text-sm border-collapse">
                         <thead>
                           <tr className="text-left">
-                            <th className="border-b py-2 px-2">Student ID</th>
+                            <th className="border-b py-2 px-2">MIS</th>
+                            <th className="border-b py-2 px-2">Student Name</th>
                             <th className="border-b py-2 px-2">Score</th>
                             <th className="border-b py-2 px-2">Total Questions</th>
                             <th className="border-b py-2 px-2">Submitted At</th>
@@ -927,8 +927,9 @@ export const TeacherDashboard: React.FC = () => {
                         </thead>
                         <tbody>
                           {(resultsData.results ?? []).map((r: any) => (
-                            <tr key={r.submissionId ?? r.studentId ?? Math.random()}>
-                              <td className="py-2 px-2 border-b">{r.studentId ?? "—"}</td>
+                            <tr key={r.submissionId ?? r.mis ?? Math.random()}>
+                              <td className="py-2 px-2 border-b">{r.mis ?? "—"}</td>
+                              <td className="py-2 px-2 border-b">{r.studentName ?? "—"}</td>
                               <td className="py-2 px-2 border-b">{r.score ?? "—"}</td>
                               <td className="py-2 px-2 border-b">{r.totalQuestions ?? "—"}</td>
                               <td className="py-2 px-2 border-b">{r.submittedAt ? new Date(r.submittedAt).toLocaleString() : "—"}</td>
