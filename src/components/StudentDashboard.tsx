@@ -2,8 +2,6 @@
 import React, { useEffect, useState } from "react";
 import { useAuthContext } from "../auth/AuthProvider";
 import { supabase } from "../lib/supabaseClient";
-import { useNavigate } from "react-router-dom";
-
 import EnterPinModal from "./EnterPinModal";
 import LobbyView from "./LobbyView";
 import StudentQuizView from "./StudentQuizView";
@@ -16,7 +14,7 @@ type QuizMeta = {
   duration?: number;
   totalQuestions?: number;
   dueDate?: string;
-  status?: string; // available | in_progress | completed | missed | draft | active etc.
+  status?: string;
   attempts?: number;
   maxAttempts?: number;
   assignedTo?: string[] | string;
@@ -52,16 +50,18 @@ const getDaysRemaining = (dueDate?: string) => {
 
 export default function StudentDashboard(): React.ReactElement {
   const auth = useAuthContext();
-  const navigate = useNavigate();
   const [quizzes, setQuizzes] = useState<QuizMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // PIN / lobby state (NEW)
+  // Pin / lobby states
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [activeSessionObject, setActiveSessionObject] = useState<any | null>(null);
-  const [lobbyOpen, setLobbyOpen] = useState(false);
+  // IMPORTANT: quizId returned by join — authoritative for this student
+  const [joinedQuizId, setJoinedQuizId] = useState<string | null>(null);
+
+  // When session becomes active we will fetch quiz into this
+  const [activeQuiz, setActiveQuiz] = useState<any | null>(null);
 
   const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string) || "";
   const apiBase = BACKEND_URL ? BACKEND_URL.replace(/\/$/, "") : "/api";
@@ -114,67 +114,33 @@ export default function StudentDashboard(): React.ReactElement {
       const all: QuizMeta[] = Array.isArray(json) ? json : json?.quizzes ?? json?.data ?? [];
       console.log("[StudentDashboard] fetched quizzes count:", (all || []).length);
 
-      // Try to determine student identifier
+      // Simple include logic: include public/available quizzes and not ones only created by the student
       const userId = (auth.user as any)?.id ?? (auth.user as any)?.user?.id ?? null;
-      const userEmail = (auth.user as any)?.email ?? (auth.user as any)?.user?.email ?? null;
-      console.log("[StudentDashboard] student identifiers:", { userId, userEmail });
-
       const filtered = (all || []).filter((q) => {
         if (!q) return false;
-
         const status = (q.status ?? "").toString().toLowerCase();
         const assigned = q.assignedTo ?? q.allowedStudents ?? q.studentIds ?? q.students ?? null;
 
-        // 1) If assigned list exists, check membership
         if (assigned) {
           if (Array.isArray(assigned)) {
-            if (userId && assigned.map(String).includes(String(userId))) {
-              console.log("[StudentDashboard] included by assigned array:", q.id);
-              return true;
-            }
-            if (userEmail && assigned.map(String).includes(String(userEmail))) {
-              console.log("[StudentDashboard] included by assigned email in array:", q.id);
-              return true;
-            }
+            if (userId && assigned.map(String).includes(String(userId))) return true;
           } else if (typeof assigned === "string") {
             const parts = assigned.split?.(",").map((s: string) => s.trim()) ?? [assigned];
-            if (userId && parts.includes(String(userId))) {
-              console.log("[StudentDashboard] included by assigned csv (id):", q.id);
-              return true;
-            }
-            if (userEmail && parts.includes(String(userEmail))) {
-              console.log("[StudentDashboard] included by assigned csv (email):", q.id);
-              return true;
-            }
+            if (userId && parts.includes(String(userId))) return true;
           }
           // assigned exists but student not in it -> exclude
-          console.log("[StudentDashboard] excluded: assigned list present but student not included:", q.id);
           return false;
         }
 
-        // 2) If status indicates availability, include
-        if (status === "available" || status === "active") {
-          console.log("[StudentDashboard] included by status:", q.id);
-          return true;
-        }
+        if (status === "available" || status === "active") return true;
 
-        // 3) If creatorId exists and is not the student, assume teacher-created quiz intended for students -> include
         const creator = q.creatorId ?? q.createdBy ?? q.creator_id ?? q.created_by ?? null;
-        if (creator && String(creator) !== String(userId)) {
-          console.log("[StudentDashboard] included: creator present and not the student:", q.id, "creator:", creator);
-          return true;
-        }
+        if (creator && String(creator) !== String(userId)) return true;
 
-        // 4) If there is no owner metadata at all, include (public)
         const ownerCandidates = [q.teacherId, q.createdBy, q.creatorId, q.ownerId, q.userId, q.instructorId, q.teacher_id, q.created_by, q.creator_id, q.owner_id];
         const hasOwnerInfo = ownerCandidates.some((c) => c !== undefined && c !== null);
-        if (!hasOwnerInfo) {
-          console.log("[StudentDashboard] included: no owner metadata (public):", q.id);
-          return true;
-        }
+        if (!hasOwnerInfo) return true;
 
-        // otherwise exclude
-        console.log("[StudentDashboard] excluded: no assignment, not available, creator==student or owner info present:", q.id);
         return false;
       });
 
@@ -194,48 +160,80 @@ export default function StudentDashboard(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Logout handler
-  const handleLogout = async () => {
-    console.log("[StudentDashboard] logout requested");
+  // Called when EnterPinModal notifies a successful join
+  const handlePinJoined = (sessionId: string, quizId?: string | null) => {
+    console.log("[StudentDashboard] onPinJoined sessionId=", sessionId, "quizId=", quizId);
+    setCurrentSessionId(String(sessionId));
+    if (quizId) setJoinedQuizId(String(quizId));
+    // leave EnterPinModal open state to parent UI decides; here we just store ids
+    setPinModalOpen(false);
+  };
+
+  // called by LobbyView when session status becomes active (normalized)
+  const handleSessionStarted = async (sessionNormalized: any) => {
+    console.log("[StudentDashboard] onSessionStarted", sessionNormalized);
+
+    // prefer quizId from the join response (joinedQuizId) — that is authoritative for this student
+    const quizIdToUse = joinedQuizId ?? sessionNormalized?.quizId ?? sessionNormalized?.session?.quizId ?? null;
+
+    if (!quizIdToUse) {
+      console.warn("[StudentDashboard] No quizId available from join or session; cannot fetch quiz yet.", { sessionNormalized, joinedQuizId });
+      setError("Quiz details not available yet — please wait for teacher.");
+      return;
+    }
+
+    console.log("[StudentDashboard] Using quizId to fetch quiz:", quizIdToUse);
+
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error("[StudentDashboard] supabase signOut error:", error);
-      } else {
-        console.log("[StudentDashboard] supabase signOut success");
+      const sessRes = await supabase.auth.getSession();
+      const accessToken = sessRes?.data?.session?.access_token ?? null;
+      if (!accessToken) {
+        console.warn("[StudentDashboard] no access token when trying to fetch quiz");
+        setError("No auth token available.");
+        return;
       }
+
+      const resp = await fetch(`${apiBase}/api/quizzes/${encodeURIComponent(quizIdToUse)}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+          "ngrok-skip-browser-warning": "true",
+        },
+      });
+
+      const text = await resp.text();
+      let json: any = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        console.warn("[StudentDashboard] quiz GET returned non-JSON:", text.slice(0, 200));
+      }
+
+      if (!resp.ok) {
+        console.error("[StudentDashboard] failed to fetch quiz:", resp.status, text);
+        setError("Failed to load quiz details. Please contact your teacher.");
+        return;
+      }
+
+      console.log("[StudentDashboard] fetched quiz details:", json);
+      setActiveQuiz(json);
     } catch (err: any) {
-      console.error("[StudentDashboard] signOut threw:", err);
-    } finally {
-      try { auth.setRole(null); } catch (e) { console.warn("[StudentDashboard] auth.setRole null failed:", e); }
-      setQuizzes([]);
-      setError(null);
-      setLoading(false);
-      navigate("/signin");
+      console.error("[StudentDashboard] error fetching quiz:", err);
+      setError("Network or server error while loading quiz.");
     }
   };
 
-  // Called when EnterPinModal returns sessionId
-  const onPinJoined = (sessionId: string) => {
-    console.log("[StudentDashboard] onPinJoined sessionId=", sessionId);
-    setCurrentSessionId(sessionId);
-    setPinModalOpen(false);
-    setLobbyOpen(true);
+  // handle session updates (optional) — e.g. show lobby info
+  const handleSessionUpdate = (normalized: any) => {
+    console.log("[StudentDashboard] lobby update:", normalized);
+    // could update UI about participants, time left, etc.
   };
 
-  // Called when lobby reports session started
-  const onLobbySessionStarted = (sessionObj: any) => {
-    console.log("[StudentDashboard] onLobbySessionStarted", sessionObj);
-    setActiveSessionObject(sessionObj);
-    // optionally close lobby UI (we keep it open area switched to quiz)
-  };
-
-  // close lobby view
-  const closeLobby = () => {
-    console.log("[StudentDashboard] closeLobby");
-    setLobbyOpen(false);
-    setCurrentSessionId(null);
-    setActiveSessionObject(null);
+  const logout = async () => {
+    const { supabase: sb } = { supabase }; // to keep linter happy
+    await sb.auth.signOut();
+    // optionally redirect; parent router may detect no-auth and show sign-in
   };
 
   return (
@@ -260,17 +258,7 @@ export default function StudentDashboard(): React.ReactElement {
               Refresh
             </button>
 
-            <button
-              onClick={() => setPinModalOpen(true)}
-              className="px-3 py-1 border rounded text-sm bg-indigo-50 hover:bg-indigo-100"
-            >
-              Join by PIN
-            </button>
-
-            <button
-              onClick={handleLogout}
-              className="px-3 py-1 border rounded text-sm bg-red-50 hover:bg-red-100 text-red-700"
-            >
+            <button onClick={logout} className="px-3 py-1 border rounded text-sm bg-red-50 text-red-700 hover:bg-red-100">
               Logout
             </button>
           </div>
@@ -285,120 +273,101 @@ export default function StudentDashboard(): React.ReactElement {
             <div className="text-sm text-gray-500">{loading ? "Loading..." : `${quizzes.length} quizzes`}</div>
           </div>
 
-          {loading ? (
-            <div className="text-sm text-gray-600">Loading quizzes...</div>
-          ) : error ? (
-            <div className="text-sm text-red-600">Error: {error}</div>
-          ) : quizzes.length === 0 ? (
-            <div className="text-sm text-gray-600">No quizzes available right now.</div>
+          <div className="mb-6 flex gap-3">
+            <button onClick={() => setPinModalOpen(true)} className="px-3 py-2 bg-sky-600 text-white rounded">
+              Enter PIN to Join Lobby
+            </button>
+
+            {currentSessionId && (
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                In lobby: <strong>{currentSessionId}</strong>
+              </div>
+            )}
+          </div>
+
+          {/* if activeQuiz present, show quiz view; otherwise show available list + optional lobby view */}
+          {activeQuiz ? (
+            <StudentQuizView quiz={activeQuiz} />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {quizzes.map((q, i) => {
-                const id = q.id ?? q.quizId ?? q._id ?? `q-${i}`;
-                const status = (q.status ?? "available").toString();
-                return (
-                  <div key={String(id)} className="bg-white border rounded-lg p-4 shadow-sm flex flex-col">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="font-medium text-lg">{q.title ?? "Untitled quiz"}</div>
-                        <div className="text-xs text-gray-500">{q.subject ?? "No subject"}</div>
+            <>
+              {/* Lobby view (if joined) */}
+              {currentSessionId && (
+                <div className="mb-6">
+                  <LobbyView
+                    sessionId={currentSessionId}
+                    onSessionStarted={handleSessionStarted}
+                    onSessionUpdate={handleSessionUpdate}
+                    pollIntervalMs={2000}
+                  />
+                </div>
+              )}
+
+              {loading ? (
+                <div className="text-sm text-gray-600">Loading quizzes...</div>
+              ) : error ? (
+                <div className="text-sm text-red-600">Error: {error}</div>
+              ) : quizzes.length === 0 ? (
+                <div className="text-sm text-gray-600">No quizzes available right now.</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {quizzes.map((q, i) => {
+                    const id = q.id ?? q.quizId ?? q._id ?? `q-${i}`;
+                    const status = (q.status ?? "available").toString();
+                    return (
+                      <div key={String(id)} className="bg-white border rounded-lg p-4 shadow-sm flex flex-col">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="font-medium text-lg">{q.title ?? "Untitled quiz"}</div>
+                            <div className="text-xs text-gray-500">{q.subject ?? "No subject"}</div>
+                          </div>
+                          <div className="text-xs">
+                            <span
+                              className={`px-2 py-0.5 rounded text-xs font-medium ${status.includes("avail") ? "bg-green-100 text-green-800 border border-green-200" : status.includes("in_progress") ? "bg-yellow-100 text-yellow-800 border border-yellow-200" : "bg-gray-100 text-gray-700 border border-gray-200"}`}
+                            >
+                              {status}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 text-sm text-gray-600 flex-1">
+                          <div className="mb-1">Questions: {q.totalQuestions ?? "—"}</div>
+                          <div className="mb-1">Duration: {q.duration ? `${q.duration} min` : "—"}</div>
+                          <div className="mb-1">Due: {formatDate(q.dueDate)} ({getDaysRemaining(q.dueDate)})</div>
+                          <div>Attempts: {q.attempts ?? 0}/{q.maxAttempts ?? "∞"}</div>
+                        </div>
+
+                        <div className="mt-4 flex items-center gap-2">
+                          <button disabled className="bg-sky-600 text-white px-3 py-2 rounded opacity-80 cursor-not-allowed text-sm">
+                            Start
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              console.log("[StudentDashboard] Attempt clicked but not implemented", id);
+                            }}
+                            className="px-3 py-2 border rounded text-sm"
+                          >
+                            Details (disabled)
+                          </button>
+                        </div>
                       </div>
-                      <div className="text-xs">
-                        <span
-                          className={`px-2 py-0.5 rounded text-xs font-medium ${
-                            status.includes("avail") ? "bg-green-100 text-green-800 border border-green-200" : status.includes("in_progress") ? "bg-yellow-100 text-yellow-800 border border-yellow-200" : "bg-gray-100 text-gray-700 border border-gray-200"
-                          }`}
-                        >
-                          {status}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 text-sm text-gray-600 flex-1">
-                      <div className="mb-1">Questions: {q.totalQuestions ?? "—"}</div>
-                      <div className="mb-1">Duration: {q.duration ? `${q.duration} min` : "—"}</div>
-                      <div className="mb-1">Due: {formatDate(q.dueDate)} ({getDaysRemaining(q.dueDate)})</div>
-                      <div>Attempts: {q.attempts ?? 0}/{q.maxAttempts ?? "∞"}</div>
-                    </div>
-
-                    <div className="mt-4 flex items-center gap-2">
-                      {/* Students cannot view details — keep Start disabled until you implement the quiz runner */}
-                      <button disabled className="bg-sky-600 text-white px-3 py-2 rounded opacity-80 cursor-not-allowed text-sm">
-                        Start
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          console.log("[StudentDashboard] Attempt clicked but not implemented", id);
-                          // optional: navigate to /quizzes/:id/take
-                        }}
-                        className="px-3 py-2 border rounded text-sm"
-                      >
-                        Details (disabled)
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </div>
       </main>
 
       {/* Enter PIN modal */}
-      {pinModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget) setPinModalOpen(false); }}>
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="relative z-10 bg-white rounded shadow-lg p-4 max-w-md w-full">
-            <EnterPinModal
-              onJoined={(sessionId) => onPinJoined(sessionId)}
-              onClose={() => setPinModalOpen(false)}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Lobby view (student) */}
-      {lobbyOpen && currentSessionId && !activeSessionObject && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center p-6">
-          <div className="absolute inset-0 bg-black/50" />
-          <div className="relative z-10 w-full max-w-4xl">
-            <div className="bg-white rounded shadow">
-              <div className="p-4 border-b flex items-center justify-between">
-                <div>
-                  <div className="text-sm text-gray-500">Lobby</div>
-                  <div className="font-semibold">Session: {currentSessionId}</div>
-                </div>
-                <div>
-                  <button onClick={closeLobby} className="px-3 py-1 border rounded">Close</button>
-                </div>
-              </div>
-
-              <div className="p-4">
-                <LobbyView sessionId={currentSessionId} role="student" onClose={closeLobby} onSessionStarted={(s) => onLobbySessionStarted(s)} />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Active quiz view for student */}
-      {activeSessionObject && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
-          <div className="absolute inset-0 bg-black/50" />
-          <div className="relative z-10 w-full max-w-4xl">
-            <div className="bg-white rounded shadow p-4 overflow-auto max-h-[90vh]">
-              <StudentQuizView session={activeSessionObject} onFinished={() => {
-                console.log("[StudentDashboard] student finished submission for session", activeSessionObject?.id);
-                // close after finished, or keep showing result area
-                setActiveSessionObject(null);
-                setCurrentSessionId(null);
-                setLobbyOpen(false);
-              }} />
-            </div>
-          </div>
-        </div>
-      )}
+      <EnterPinModal
+        open={pinModalOpen}
+        onClose={() => setPinModalOpen(false)}
+        onJoined={(sessionId, quizId) => {
+          handlePinJoined(sessionId, quizId ?? null);
+        }}
+      />
     </div>
   );
 }
