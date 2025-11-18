@@ -4,6 +4,9 @@ import { useAuthContext } from "../auth/AuthProvider";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
 
+import CreateLobbyModal from "./CreateLobbyModal";
+import LobbyView from "./LobbyView";
+
 type Option = string;
 type Question = {
   questionText: string;
@@ -59,6 +62,13 @@ export const TeacherDashboard: React.FC = () => {
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
   const [modalQuiz, setModalQuiz] = useState<QuizFull | null>(null);
+
+  // Lobby / Create lobby states (NEW)
+  const [createLobbyModalOpen, setCreateLobbyModalOpen] = useState(false);
+  const [createLobbyQuizId, setCreateLobbyQuizId] = useState<string | null>(null);
+  const [lobbySessionId, setLobbySessionId] = useState<string | null>(null);
+  const [lobbyPin, setLobbyPin] = useState<string | null>(null);
+  const [lobbyOpen, setLobbyOpen] = useState(false);
 
   const auth = useAuthContext();
   const navigate = useNavigate();
@@ -405,7 +415,7 @@ export const TeacherDashboard: React.FC = () => {
     setModalLoading(false);
   };
 
-  // Logout handler for teacher dashboard
+  // logout handler
   const handleLogout = async () => {
     console.log("[TeacherDashboard] logout requested");
     try {
@@ -418,19 +428,37 @@ export const TeacherDashboard: React.FC = () => {
     } catch (err: any) {
       console.error("[TeacherDashboard] signOut threw:", err);
     } finally {
-      // Clear role in auth context (if available)
-      try {
-        auth.setRole(null);
-      } catch (e) {
-        console.warn("[TeacherDashboard] auth.setRole null failed:", e);
-      }
-      // Clear local UI state
+      try { auth.setRole(null); } catch (e) { console.warn("[TeacherDashboard] auth.setRole null failed:", e); }
       setQuizzes([]);
       setMsg(null);
       setSuccessId(null);
-      // navigate to signin
       navigate("/signin");
     }
+  };
+
+  // open Create Lobby modal for a quiz (NEW)
+  const openCreateLobbyForQuiz = (quizId: string) => {
+    console.log("[TeacherDashboard] openCreateLobbyForQuiz", quizId);
+    setCreateLobbyQuizId(quizId);
+    setCreateLobbyModalOpen(true);
+  };
+
+  // called when CreateLobbyModal returns sessionId + pin (NEW)
+  const onLobbyCreated = (sessionId: string, pin: string) => {
+    console.log("[TeacherDashboard] onLobbyCreated sessionId=", sessionId, "pin=", pin);
+    setCreateLobbyModalOpen(false);
+    setLobbySessionId(sessionId);
+    setLobbyPin(pin);
+    setLobbyOpen(true);
+    // Optionally fetch session details now; LobbyView will poll/manage
+  };
+
+  // close lobby view
+  const closeLobbyView = () => {
+    console.log("[TeacherDashboard] closeLobbyView");
+    setLobbyOpen(false);
+    setLobbySessionId(null);
+    setLobbyPin(null);
   };
 
   // load quizzes on mount
@@ -459,6 +487,7 @@ export const TeacherDashboard: React.FC = () => {
           >
             View
           </button>
+
           <button
             className="text-sm px-3 py-1 border rounded text-red-600 hover:bg-red-50"
             onClick={() => {
@@ -467,6 +496,14 @@ export const TeacherDashboard: React.FC = () => {
             }}
           >
             Delete
+          </button>
+
+          {/* NEW: Open Lobby button */}
+          <button
+            className="text-sm px-3 py-1 border rounded text-sky-600 hover:bg-sky-50"
+            onClick={() => openCreateLobbyForQuiz(String(id))}
+          >
+            Open Lobby
           </button>
         </div>
       </div>
@@ -692,14 +729,13 @@ export const TeacherDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Quiz detail modal */}
       {modalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
           role="dialog"
           aria-modal="true"
           onClick={(e) => {
-            // click on backdrop closes
             if (e.target === e.currentTarget) closeModal();
           }}
         >
@@ -708,16 +744,52 @@ export const TeacherDashboard: React.FC = () => {
             <div className="flex items-center justify-between p-4 border-b">
               <div className="text-lg font-semibold">Quiz Details</div>
               <div>
-                <button
-                  onClick={closeModal}
-                  className="px-3 py-1 rounded border text-sm hover:bg-gray-100"
-                >
+                <button onClick={closeModal} className="px-3 py-1 rounded border text-sm hover:bg-gray-100">
                   Close
                 </button>
               </div>
             </div>
 
-            <div>{/* content */}<ModalContent /></div>
+            <div><ModalContent /></div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Lobby Modal (teacher) */}
+      {createLobbyModalOpen && createLobbyQuizId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget) setCreateLobbyModalOpen(false); }}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative z-10 bg-white rounded shadow-lg p-4 max-w-md w-full">
+            <CreateLobbyModal
+              quizId={createLobbyQuizId}
+              onCreated={(sessionId, pin) => onLobbyCreated(sessionId, pin)}
+              onClose={() => setCreateLobbyModalOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Lobby view (teacher) */}
+      {lobbyOpen && lobbySessionId && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-black/50" />
+          <div className="relative z-10 w-full max-w-4xl">
+            <div className="bg-white rounded shadow">
+              <div className="p-4 border-b flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-gray-500">Lobby</div>
+                  <div className="font-semibold">Session: {lobbySessionId}</div>
+                  {lobbyPin && <div className="text-xs text-gray-500">PIN: {lobbyPin}</div>}
+                </div>
+                <div>
+                  <button onClick={closeLobbyView} className="px-3 py-1 border rounded">Close</button>
+                </div>
+              </div>
+
+              <div className="p-4">
+                <LobbyView sessionId={lobbySessionId} role="teacher" onClose={closeLobbyView} />
+              </div>
+            </div>
           </div>
         </div>
       )}

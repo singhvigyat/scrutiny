@@ -4,6 +4,10 @@ import { useAuthContext } from "../auth/AuthProvider";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
 
+import EnterPinModal from "./EnterPinModal";
+import LobbyView from "./LobbyView";
+import StudentQuizView from "./StudentQuizView";
+
 type QuizMeta = {
   id?: string;
   quizId?: string;
@@ -52,6 +56,12 @@ export default function StudentDashboard(): React.ReactElement {
   const [quizzes, setQuizzes] = useState<QuizMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // PIN / lobby state (NEW)
+  const [pinModalOpen, setPinModalOpen] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [activeSessionObject, setActiveSessionObject] = useState<any | null>(null);
+  const [lobbyOpen, setLobbyOpen] = useState(false);
 
   const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string) || "";
   const apiBase = BACKEND_URL ? BACKEND_URL.replace(/\/$/, "") : "/api";
@@ -197,19 +207,35 @@ export default function StudentDashboard(): React.ReactElement {
     } catch (err: any) {
       console.error("[StudentDashboard] signOut threw:", err);
     } finally {
-      // Clear role in auth context (persisted role in localStorage will be removed by AuthProvider.setRole)
-      try {
-        auth.setRole(null);
-      } catch (e) {
-        console.warn("[StudentDashboard] auth.setRole null failed:", e);
-      }
-      // Clear local UI state
+      try { auth.setRole(null); } catch (e) { console.warn("[StudentDashboard] auth.setRole null failed:", e); }
       setQuizzes([]);
       setError(null);
       setLoading(false);
-      // navigate to signin
       navigate("/signin");
     }
+  };
+
+  // Called when EnterPinModal returns sessionId
+  const onPinJoined = (sessionId: string) => {
+    console.log("[StudentDashboard] onPinJoined sessionId=", sessionId);
+    setCurrentSessionId(sessionId);
+    setPinModalOpen(false);
+    setLobbyOpen(true);
+  };
+
+  // Called when lobby reports session started
+  const onLobbySessionStarted = (sessionObj: any) => {
+    console.log("[StudentDashboard] onLobbySessionStarted", sessionObj);
+    setActiveSessionObject(sessionObj);
+    // optionally close lobby UI (we keep it open area switched to quiz)
+  };
+
+  // close lobby view
+  const closeLobby = () => {
+    console.log("[StudentDashboard] closeLobby");
+    setLobbyOpen(false);
+    setCurrentSessionId(null);
+    setActiveSessionObject(null);
   };
 
   return (
@@ -232,6 +258,13 @@ export default function StudentDashboard(): React.ReactElement {
               className="px-3 py-1 border rounded text-sm"
             >
               Refresh
+            </button>
+
+            <button
+              onClick={() => setPinModalOpen(true)}
+              className="px-3 py-1 border rounded text-sm bg-indigo-50 hover:bg-indigo-100"
+            >
+              Join by PIN
             </button>
 
             <button
@@ -311,6 +344,61 @@ export default function StudentDashboard(): React.ReactElement {
           )}
         </div>
       </main>
+
+      {/* Enter PIN modal */}
+      {pinModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget) setPinModalOpen(false); }}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative z-10 bg-white rounded shadow-lg p-4 max-w-md w-full">
+            <EnterPinModal
+              onJoined={(sessionId) => onPinJoined(sessionId)}
+              onClose={() => setPinModalOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Lobby view (student) */}
+      {lobbyOpen && currentSessionId && !activeSessionObject && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-black/50" />
+          <div className="relative z-10 w-full max-w-4xl">
+            <div className="bg-white rounded shadow">
+              <div className="p-4 border-b flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-gray-500">Lobby</div>
+                  <div className="font-semibold">Session: {currentSessionId}</div>
+                </div>
+                <div>
+                  <button onClick={closeLobby} className="px-3 py-1 border rounded">Close</button>
+                </div>
+              </div>
+
+              <div className="p-4">
+                <LobbyView sessionId={currentSessionId} role="student" onClose={closeLobby} onSessionStarted={(s) => onLobbySessionStarted(s)} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Active quiz view for student */}
+      {activeSessionObject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-black/50" />
+          <div className="relative z-10 w-full max-w-4xl">
+            <div className="bg-white rounded shadow p-4 overflow-auto max-h-[90vh]">
+              <StudentQuizView session={activeSessionObject} onFinished={() => {
+                console.log("[StudentDashboard] student finished submission for session", activeSessionObject?.id);
+                // close after finished, or keep showing result area
+                setActiveSessionObject(null);
+                setCurrentSessionId(null);
+                setLobbyOpen(false);
+              }} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
