@@ -1,73 +1,79 @@
 // src/auth/AuthProvider.tsx
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
-import type { Session } from '@supabase/supabase-js';
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { supabase } from "../lib/supabaseClient";
 
-interface AuthContextValue {
-  session: Session | null;
-  user: any | null;
-  refresh: () => Promise<void>;
+interface AuthContextType {
+  user: any;
+  role: string | null;
+  roleLoading: boolean;
 }
 
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  role: null,
+  roleLoading: false,
+});
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<any | null>(null);
+export const useAuthContext = () => useContext(AuthContext);
+
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const [user, setUser] = useState<any>(null);
+  const [role, setRole] = useState<string | null>(null);
+  const [roleLoading, setRoleLoading] = useState(false);
 
   useEffect(() => {
-    let mounted = true;
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("🟠 AuthStateChange:", event, session?.user);
 
-    // fetch initial session
-    (async () => {
-      try {
-        const { data } = await supabase.auth.getSession();
-        // getSession returns { data: { session } }
-        const s = (data as any)?.session ?? null;
-        if (mounted) {
-          setSession(s);
-          setUser(s?.user ?? null);
-        }
-      } catch (err) {
-        // optional: log error
-        console.warn('Failed to get initial session', err);
+      if (!session?.user) {
+        setUser(null);
+        setRole(null);
+        localStorage.removeItem("role");
+        return;
       }
-    })();
 
-    // subscribe to auth state changes
-    const { data } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      // newSession is the new session object (or null)
-      setSession(newSession ?? null);
-      setUser((newSession as any)?.user ?? null);
+      setUser(session.user);
+
+      // if role is already stored, load instantly
+      const savedRole = localStorage.getItem("role");
+      if (savedRole) {
+        console.log("🟢 Using persisted role:", savedRole);
+        setRole(savedRole);
+        return;
+      }
+
+      // otherwise fetch manually (backend or supabase)
+      setRoleLoading(true);
+
+      try {
+        const token = session.access_token;
+        const resp = await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/auth/me`, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'ngrok-skip-browser-warning': 'true'
+          }
+        });
+
+        const json = await resp.json();
+        const r = json?.user?.role ?? null;
+        console.log("🟢 Loaded role from backend:", r);
+
+        if (r) {
+          localStorage.setItem("role", r);
+        }
+        setRole(r);
+      } finally {
+        setRoleLoading(false);
+      }
     });
 
-    // data may be undefined in some typings — be defensive
-    const subscription = (data as any)?.subscription;
-
-    return () => {
-      mounted = false;
-      try {
-        if (subscription && typeof subscription.unsubscribe === 'function') {
-          subscription.unsubscribe();
-        }
-      } catch (err) {
-        console.warn('Failed to unsubscribe from auth state changes', err);
-      }
-    };
+    return () => sub.subscription.unsubscribe();
   }, []);
 
-  const refresh = async () => {
-    const { data } = await supabase.auth.getSession();
-    const s = (data as any)?.session ?? null;
-    setSession(s);
-    setUser(s?.user ?? null);
-  };
-
-  return <AuthContext.Provider value={{ session, user, refresh }}>{children}</AuthContext.Provider>;
-};
-
-export const useAuthContext = () => {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuthContext must be used inside AuthProvider');
-  return ctx;
+  return (
+    <AuthContext.Provider value={{ user, role, roleLoading }}>
+      {children}
+    </AuthContext.Provider>
+  );
 };

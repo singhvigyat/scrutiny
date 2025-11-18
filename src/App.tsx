@@ -1,5 +1,6 @@
 // src/App.tsx
 import React, { useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
 
 // Auth context + provider
 import { AuthProvider, useAuthContext } from "./auth/AuthProvider";
@@ -8,10 +9,43 @@ import { AuthProvider, useAuthContext } from "./auth/AuthProvider";
 import SignIn from "./auth/SignIn";
 import SignUp from "./auth/SignUp";
 
+// Dashboards
+import StudentDashboard from "./components/StudentDashboard";
+import TeacherDashboard from "./components/TeacherDashboard";
+
 type View = "sign-in" | "sign-up";
 
-// Simple protected dashboard shown when user is present
-function Dashboard() {
+/**
+ * A small protected route wrapper.
+ * - If no user, redirects to /signin (preserves intended location in state).
+ * - If allowedRoles provided, checks user.user_metadata.role and redirects to /signin if not allowed.
+ */
+function ProtectedRoute({ children, allowedRoles }: { children: React.ReactElement; allowedRoles?: string[] }) {
+  const { user, role, roleLoading } = useAuthContext();
+  const location = useLocation();
+
+  if (roleLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-slate-600">Checking permissions...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    // not logged in
+    return <Navigate to="/signin" replace state={{ from: location }} />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(role!)) {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
+}
+
+// Simple protected dashboard shown when user is present (keeps your original small dashboard)
+function SmallDashboard() {
   const { user } = useAuthContext();
 
   return (
@@ -25,27 +59,47 @@ function Dashboard() {
           You are logged in. This is your secure dashboard.
         </p>
 
-        <button
-          onClick={async () => {
-            const { supabase } = await import("./lib/supabaseClient");
-            await supabase.auth.signOut();
-          }}
-          className="mt-6 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md"
-        >
-          Sign out
-        </button>
+        <div className="mt-6 flex gap-2">
+          <button
+            onClick={async () => {
+              const { supabase } = await import("./lib/supabaseClient");
+              await supabase.auth.signOut();
+              localStorage.removeItem('role');
+              // navigate('/');
+            }}
+            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md"
+          >
+            Sign out
+          </button>
+
+          {/* quick navigation to role dashboards (if role present) */}
+          {user?.user_metadata?.role === "student" && (
+            <Link to="/student" className="px-4 py-2 bg-sky-600 text-white rounded-md">Go to Student</Link>
+          )}
+          {user?.user_metadata?.role === "teacher" && (
+            <Link to="/teacher" className="px-4 py-2 bg-indigo-600 text-white rounded-md">Go to Teacher</Link>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-// Root component that chooses between auth UI and dashboard
+// Root component that chooses between auth UI and dashboard (keeps original inline UI)
 function AppRoot() {
-  const { user } = useAuthContext();
+  const { user, roleLoading } = useAuthContext();
   const [view, setView] = useState<View>("sign-in");
 
-  // if logged in, show dashboard
-  if (user) return <Dashboard />;
+  if (roleLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-slate-600">Loading...</p>
+      </div>
+    );
+  }
+
+  // if logged in, show small dashboard
+  if (user) return <SmallDashboard />;
 
   // not logged in -> show either SignIn or SignUp
   return (
@@ -90,6 +144,9 @@ function AppRoot() {
                 <button className="text-sky-600" onClick={() => setView("sign-up")}>
                   Create account
                 </button>
+                <div className="mt-2 text-xs">
+                  Or use the dedicated pages: <Link to="/signin" className="text-sky-600">/signin</Link> · <Link to="/signup" className="text-sky-600">/signup</Link>
+                </div>
               </div>
             </>
           ) : (
@@ -109,11 +166,53 @@ function AppRoot() {
   );
 }
 
-// Wrap the app in AuthProvider
+// Main App with router + routes
 export default function App() {
   return (
     <AuthProvider>
-      <AppRoot />
+      <BrowserRouter>
+        <Routes>
+          {/* home — the inline auth + small dashboard (if logged in) */}
+          <Route path="/" element={<AppRoot />} />
+
+          {/* dedicated auth pages */}
+          <Route path="/signin" element={<SignIn />} />
+          <Route path="/signup" element={<SignUp onAfterSignUp={() => { /* no-op here */ }} />} />
+
+          {/* student dashboard (protected, only students allowed) */}
+          <Route
+            path="/student"
+            element={
+              <ProtectedRoute allowedRoles={["student"]}>
+                <StudentDashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* teacher dashboard (protected, only teachers allowed) */}
+          <Route
+            path="/teacher"
+            element={
+              <ProtectedRoute allowedRoles={["teacher"]}>
+                <TeacherDashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* small authenticated dashboard accessible to any logged in user (example) */}
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <SmallDashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* fallback: redirect unknown routes to / */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
     </AuthProvider>
   );
 }

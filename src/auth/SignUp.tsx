@@ -1,5 +1,6 @@
 // src/auth/SignUp.tsx
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 type Role = 'student' | 'teacher';
 
@@ -16,6 +17,8 @@ export default function SignUp({ onAfterSignUp }: SignUpProps) {
   const [employee_id, setEmployeeId] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  const navigate = useNavigate();
 
   const BACKEND_URL =
     (import.meta.env.VITE_BACKEND_URL as string) || '';
@@ -64,7 +67,7 @@ export default function SignUp({ onAfterSignUp }: SignUpProps) {
       // teacher -> { email, password, name, role, employee_id }
       const payload: Record<string, unknown> = {
         email: email,
-        password: password, // server must hash/store securely
+        password: password,
         name: name,
         role: role,
       };
@@ -100,7 +103,13 @@ export default function SignUp({ onAfterSignUp }: SignUpProps) {
       clear();
 
       // notify parent (switch to sign in view, etc.)
-      onAfterSignUp?.();
+      if (onAfterSignUp) {
+        onAfterSignUp();
+      } else {
+        // if parent didn't provide a handler (e.g. dedicated /signup route),
+        // navigate to the sign-in page.
+        navigate('/signin');
+      }
     } catch (err: any) {
       setMessage('Network or server error while registering: ' + (err?.message ?? String(err)));
     } finally {
@@ -225,7 +234,7 @@ export default function SignUp({ onAfterSignUp }: SignUpProps) {
 
         <div className="text-sm text-slate-500">
           Already have an account?{' '}
-          <button type="button" className="text-sky-600" onClick={() => onAfterSignUp && onAfterSignUp()}>
+          <button type="button" className="text-sky-600" onClick={() => { if (onAfterSignUp) onAfterSignUp(); else navigate('/signin'); }}>
             Sign in
           </button>
         </div>
