@@ -650,7 +650,7 @@ export const TeacherDashboard: React.FC = () => {
   return (
     <>
       <div className="min-h-screen bg-gray-50 p-8">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="max-w-4xl mx-auto flex flex-col gap-6">
           {/* Left: Create form (2/3 width on large screens) */}
           <div className="lg:col-span-2 bg-white shadow rounded-lg p-6">
             <div className="flex items-center justify-between mb-6">
