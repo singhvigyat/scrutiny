@@ -44,14 +44,42 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         if (session?.user) {
           setUser(session.user);
+          
+          // Quickly read persisted role if available (fast path)
+          const savedRole = typeof window !== "undefined" ? localStorage.getItem("role") : null;
+          if (savedRole) {
+            setRoleState(savedRole);
+          } else {
+            // If session exists but no role, fetch it
+             console.log("[AuthProvider] init: session exists but no role, fetching...");
+             setRoleLoading(true);
+             try {
+                const accessToken = session.access_token;
+                const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string) || "";
+                const apiBase = BACKEND_URL ? BACKEND_URL.replace(/\/$/, "") : "/api";
+                
+                const resp = await fetch(`${apiBase}/api/auth/me`, {
+                  headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "ngrok-skip-browser-warning": "true",
+                  },
+                });
+
+                if (resp.ok) {
+                  const json = await resp.json();
+                  const fetchedRole = json?.user?.role;
+                  if (fetchedRole && mounted) {
+                    setRole(fetchedRole);
+                  }
+                }
+             } catch (e) {
+               console.warn("[AuthProvider] init fetch failed", e);
+             } finally {
+               if (mounted) setRoleLoading(false);
+             }
+          }
         } else {
           setUser(null);
-        }
-
-        // Quickly read persisted role if available (fast path)
-        const savedRole = typeof window !== "undefined" ? localStorage.getItem("role") : null;
-        if (savedRole) {
-          setRoleState(savedRole);
         }
       } catch (err) {
         console.warn("[AuthProvider] getSession failed", err);
@@ -71,17 +99,45 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       setUser(session.user);
 
-      // If a role is already persisted, use that; otherwise leave null
+      // If a role is already persisted, use that
       const savedRole = typeof window !== "undefined" ? localStorage.getItem("role") : null;
       if (savedRole) {
         console.log("[AuthProvider] using persisted role:", savedRole);
         setRoleState(savedRole);
+        setRoleLoading(false);
         return;
       }
 
-      // Do not eagerly fetch role here — SignIn will set role after contacting backend.
-      // But set roleLoading = false (no background fetch).
-      setRoleLoading(false);
+      // If no role is persisted, fetch it from backend
+      console.log("[AuthProvider] no persisted role, fetching from backend...");
+      setRoleLoading(true);
+      try {
+        const accessToken = session.access_token;
+        const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string) || "";
+        const apiBase = BACKEND_URL ? BACKEND_URL.replace(/\/$/, "") : "/api";
+        
+        const resp = await fetch(`${apiBase}/api/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "ngrok-skip-browser-warning": "true",
+          },
+        });
+
+        if (resp.ok) {
+          const json = await resp.json();
+          const fetchedRole = json?.user?.role;
+          console.log("[AuthProvider] fetched role:", fetchedRole);
+          if (fetchedRole) {
+            setRole(fetchedRole); // This updates state and localStorage
+          }
+        } else {
+          console.warn("[AuthProvider] failed to fetch role:", resp.status);
+        }
+      } catch (err) {
+        console.error("[AuthProvider] error fetching role:", err);
+      } finally {
+        setRoleLoading(false);
+      }
     });
 
     return () => {
