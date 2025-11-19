@@ -70,10 +70,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                   const fetchedRole = json?.user?.role;
                   if (fetchedRole && mounted) {
                     setRole(fetchedRole);
+                  } else {
+                    // No role returned from backend - sign out and redirect
+                    console.warn("[AuthProvider] init: no role returned from backend, signing out");
+                    await supabase.auth.signOut();
+                    setUser(null);
+                    setRole(null);
                   }
+                } else {
+                  // Backend fetch failed - sign out and redirect
+                  console.warn("[AuthProvider] init: backend fetch failed, signing out");
+                  await supabase.auth.signOut();
+                  setUser(null);
+                  setRole(null);
                 }
              } catch (e) {
                console.warn("[AuthProvider] init fetch failed", e);
+               // Network/fetch error - sign out and redirect
+               await supabase.auth.signOut();
+               setUser(null);
+               setRole(null);
              } finally {
                if (mounted) setRoleLoading(false);
              }
@@ -129,12 +145,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           console.log("[AuthProvider] fetched role:", fetchedRole);
           if (fetchedRole) {
             setRole(fetchedRole); // This updates state and localStorage
+          } else {
+            // No role returned from backend - sign out and redirect
+            console.warn("[AuthProvider] no role returned from backend, signing out");
+            await supabase.auth.signOut();
+            setUser(null);
+            setRole(null);
           }
         } else {
-          console.warn("[AuthProvider] failed to fetch role:", resp.status);
+          // Backend fetch failed - sign out and redirect
+          console.warn("[AuthProvider] failed to fetch role:", resp.status, "- signing out");
+          await supabase.auth.signOut();
+          setUser(null);
+          setRole(null);
         }
       } catch (err) {
-        console.error("[AuthProvider] error fetching role:", err);
+        console.error("[AuthProvider] error fetching role:", err, "- signing out");
+        // Network/fetch error - sign out and redirect
+        await supabase.auth.signOut();
+        setUser(null);
+        setRole(null);
       } finally {
         setRoleLoading(false);
       }
