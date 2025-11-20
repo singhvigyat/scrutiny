@@ -38,6 +38,8 @@ const createWindow = () => {
   // Create the browser window
   const mainWindow = new BrowserWindow({
     show: false,
+    fullscreen: true, // Open in fullscreen
+    autoHideMenuBar: true, // Hide the menu bar
     // Remove the native window frame/title bar completely
     // Disable resizing to prevent unexpected behavior when exiting fullscreen
     resizable: true,
@@ -57,13 +59,17 @@ const createWindow = () => {
 
   // Maximize and show the window after loading
   mainWindow.once('ready-to-show', () => {
-    mainWindow.maximize();
     mainWindow.show();
   });
 
   // Open the DevTools in a separate window
   // mainWindow.webContents.openDevTools({ mode: 'detach' });
 };
+
+import { ipcMain } from 'electron';
+ipcMain.handle('close-app', () => {
+  app.quit();
+});
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.

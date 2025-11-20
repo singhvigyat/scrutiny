@@ -91,7 +91,7 @@ function SmallDashboard() {
           <Link to="/teacher" className="block">
             <Button className="w-full" variant="secondary">Go to Teacher Dashboard</Button>
           </Link>
-          
+
           <div className="pt-4 border-t border-slate-100 dark:border-slate-700 mt-4">
             <Button
               variant="danger"
@@ -141,7 +141,7 @@ function AppRoot() {
               <Shield className="w-8 h-8 text-indigo-200" />
               <span className="text-2xl font-bold">Scrutiny</span>
             </div>
-            
+
             <h1 className="text-3xl font-bold mb-4">Secure Assessment Platform</h1>
             <p className="text-indigo-100 mb-8 leading-relaxed">
               The modern platform for teachers and students. Create quizzes, manage sessions, and track progress in real-time.
@@ -150,21 +150,19 @@ function AppRoot() {
             <div className="flex gap-3">
               <button
                 onClick={() => setView("sign-in")}
-                className={`px-6 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  view === "sign-in" 
-                    ? "bg-white text-indigo-600 shadow-lg" 
+                className={`px-6 py-2.5 rounded-lg text-sm font-medium transition-all ${view === "sign-in"
+                    ? "bg-white text-indigo-600 shadow-lg"
                     : "bg-indigo-800/40 text-white hover:bg-indigo-800/60 backdrop-blur-sm"
-                }`}
+                  }`}
               >
                 Sign in
               </button>
               <button
                 onClick={() => setView("sign-up")}
-                className={`px-6 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  view === "sign-up" 
-                    ? "bg-white text-indigo-600 shadow-lg" 
+                className={`px-6 py-2.5 rounded-lg text-sm font-medium transition-all ${view === "sign-up"
+                    ? "bg-white text-indigo-600 shadow-lg"
                     : "bg-indigo-800/40 text-white hover:bg-indigo-800/60 backdrop-blur-sm"
-                }`}
+                  }`}
               >
                 Create account
               </button>
@@ -178,10 +176,19 @@ function AppRoot() {
 
         {/* Right panel (forms) */}
         <div className="p-8 md:p-12 flex flex-col justify-center relative bg-white dark:bg-slate-800">
-          <div className="absolute top-6 right-6">
+          <div className="absolute top-6 right-6 flex items-center gap-2">
             <ThemeToggle />
+            {window.electron && (
+              <button
+                onClick={() => window.electron.closeApp()}
+                className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors"
+                title="Exit App"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            )}
           </div>
-          
+
           {view === "sign-in" ? (
             <>
               <SignIn />

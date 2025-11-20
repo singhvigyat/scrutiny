@@ -240,14 +240,25 @@ export default function StudentDashboard(): React.ReactElement {
               {auth.user?.email ?? "—"}
             </div>
             <ThemeToggle />
-            <Button 
-              variant="ghost" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={logout}
               icon={<LogOut className="w-4 h-4" />}
             >
               Logout
             </Button>
+            {window.electron && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => window.electron.closeApp()}
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                icon={<LogOut className="w-4 h-4" />}
+              >
+                Exit
+              </Button>
+            )}
           </div>
         </div>
       </nav>
@@ -255,12 +266,12 @@ export default function StudentDashboard(): React.ReactElement {
       {/* Main */}
       <main className="flex-1 overflow-auto p-6">
         <div className="max-w-5xl mx-auto space-y-8">
-          
+
           {/* Active Quiz View */}
           {activeQuiz ? (
-            <StudentQuizView 
-              quiz={activeQuiz} 
-              sessionId={currentSessionId} 
+            <StudentQuizView
+              quiz={activeQuiz}
+              sessionId={currentSessionId}
               onComplete={(completedQuizId) => {
                 console.log("[StudentDashboard] Quiz completed, returning to dashboard. qId:", completedQuizId);
                 markSubmitted(currentSessionId, completedQuizId);
@@ -301,15 +312,15 @@ export default function StudentDashboard(): React.ReactElement {
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <Button 
-                    variant="primary" 
+                  <Button
+                    variant="primary"
                     onClick={() => setPinModalOpen(true)}
                     icon={<Key className="w-4 h-4" />}
                   >
                     Enter PIN to Join
                   </Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => fetchQuizzes()}
                     icon={<RefreshCw className="w-4 h-4" />}
                   >

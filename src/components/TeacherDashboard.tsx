@@ -608,6 +608,17 @@ export const TeacherDashboard: React.FC = () => {
             >
               Logout
             </Button>
+            {window.electron && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => window.electron.closeApp()}
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                icon={<LogOut className="w-4 h-4" />}
+              >
+                Exit
+              </Button>
+            )}
           </div>
         </div>
       </nav>
@@ -787,8 +798,8 @@ export const TeacherDashboard: React.FC = () => {
                         <div
                           key={oi}
                           className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm ${isCorrect
-                              ? "bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-900/30"
-                              : "text-slate-600 dark:text-slate-300"
+                            ? "bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-900/30"
+                            : "text-slate-600 dark:text-slate-300"
                             }`}
                         >
                           <span className={`font-mono font-bold w-6 ${isCorrect ? "text-green-600 dark:text-green-400" : "text-slate-400"}`}>
