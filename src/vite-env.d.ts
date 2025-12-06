@@ -13,5 +13,6 @@ interface ImportMeta {
 interface Window {
   electron: {
     closeApp: () => Promise<void>;
+    getOsInfo: () => Promise<string>;
   };
 }

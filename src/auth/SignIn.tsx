@@ -17,6 +17,8 @@ export const SignIn: React.FC = () => {
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [osInfo, setOsInfo] = useState<string | null>(null);
+
   const navigate = useNavigate();
   const location = useLocation();
   const locState = (location.state || {}) as LocationState;
@@ -24,6 +26,14 @@ export const SignIn: React.FC = () => {
 
   const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string) || "";
   const getApiBase = () => (BACKEND_URL ? BACKEND_URL.replace(/\/$/, "") : "/api");
+
+  React.useEffect(() => {
+    if (window.electron && window.electron.getOsInfo) {
+      window.electron.getOsInfo().then((info: string) => {
+        setOsInfo(info);
+      }).catch((err: any) => console.error("Failed to get OS info:", err));
+    }
+  }, []);
 
   const onSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,6 +134,12 @@ export const SignIn: React.FC = () => {
       <div className="mb-8 text-center">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Welcome Back</h2>
         <p className="text-slate-500 dark:text-slate-400 mt-2">Sign in to access your dashboard</p>
+
+        {osInfo && (
+          <div className="mt-4 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+            Running on: {osInfo}
+          </div>
+        )}
       </div>
 
       <form onSubmit={onSignIn} className="space-y-6">

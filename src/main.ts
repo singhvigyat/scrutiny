@@ -62,13 +62,33 @@ const createWindow = () => {
     mainWindow.show();
   });
 
-  // Open the DevTools in a separate window
   // mainWindow.webContents.openDevTools({ mode: 'detach' });
 };
 
 import { ipcMain } from 'electron';
+import os from 'os';
+
 ipcMain.handle('close-app', () => {
   app.quit();
+});
+
+ipcMain.handle('get-os-info', () => {
+  const platform = os.platform();
+  const release = os.release();
+  const type = os.type();
+
+  let osName = type;
+  if (platform === 'win32') osName = 'Windows';
+  else if (platform === 'darwin') osName = 'macOS';
+  else if (platform === 'linux') {
+    if (release.toLowerCase().includes('microsoft') || release.toLowerCase().includes('wsl')) {
+      osName = 'Linux (WSL)';
+    } else {
+      osName = 'Linux';
+    }
+  }
+
+  return `${osName} ${release}`;
 });
 
 // This method will be called when Electron has finished

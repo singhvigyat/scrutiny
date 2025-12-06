@@ -5,4 +5,5 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electron', {
     closeApp: () => ipcRenderer.invoke('close-app'),
+    getOsInfo: () => ipcRenderer.invoke('get-os-info'),
 });
